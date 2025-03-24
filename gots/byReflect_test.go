@@ -31,13 +31,15 @@ type Contact struct {
 	Email   string
 }
 
-type StringAlias string
-type TestGeneric[T any] struct {
-	Data []T `waxGeneric:""`
-	P1   string
-	P2   bool
-	P3   T `waxGeneric:""`
-}
+type (
+	StringAlias        string
+	TestGeneric[T any] struct {
+		Data []T `waxGeneric:""`
+		P1   string
+		P2   bool
+		P3   T `waxGeneric:""`
+	}
+)
 
 type DummyTest struct {
 	SomeStringArr    []string
@@ -114,10 +116,10 @@ type DummyWithNestedStruct struct {
 type DummyWithOtherPkgType struct {
 	Time     time.Time
 	TestingB testing.B
+	Foo      any
 }
 
-type DummyFunc struct {
-}
+type DummyFunc struct{}
 
 func (t DummyFunc) ReturnsBool() bool {
 	return false
@@ -176,7 +178,6 @@ type Dummy_BasicTypes = {
 }
 
 func Test_base(t *testing.T) {
-
 	buf := bytes.NewBufferString("")
 
 	err := gots.GenerateTypeDefinition(buf, "", thisPackageOnly(), Contact{}, TestStruct{})
@@ -200,7 +201,7 @@ type TestStruct = {
   ArrayWithGeneric: TestGeneric<Contact>[]
 }
 
-type StringAlias = unknown & { 
+type StringAlias = object & { 
   SomeAliasFalseMethod(): boolean
   SomeAliasTrueMethod(): boolean
 }
@@ -311,6 +312,7 @@ func Test_DummyWithOtherPkgType(t *testing.T) {
 type DummyWithOtherPkgType = {
   Time: unknown
   TestingB: unknown
+  Foo: any
 }
 `
 	actual := buf.String()
@@ -320,7 +322,6 @@ type DummyWithOtherPkgType = {
 }
 
 func Test_StructFunctions(t *testing.T) {
-
 	buf := bytes.NewBufferString("")
 
 	err := gots.GenerateTypeDefinition(buf, "", thisPackageOnly(), DummyFunc{})
@@ -340,7 +341,6 @@ type DummyFunc = {
 }
 
 func Test_complex1(t *testing.T) {
-
 	buf := bytes.NewBufferString("")
 	err := gots.GenerateTypeDefinition(buf, "", thisPackageOnly(), DummyTest{})
 	if err != nil {

@@ -29,55 +29,60 @@ type definitionGenerator struct {
 	pkg       string
 }
 
-func (this *definitionGenerator) Generate(o ...any) error {
-	if this.namespace != "" {
-		this.outLine("declare namespace " + this.namespace + " {")
-		this.doIndent()
+func (g *definitionGenerator) Generate(o ...any) error {
+	if g.namespace != "" {
+		g.outLine("declare namespace " + g.namespace + " {")
+		g.doIndent()
 	}
-	if err := this.writeDefinition(o...); err != nil {
+	if err := g.writeDefinition(o...); err != nil {
 		return err
 	}
 
-	if this.namespace != "" {
-		this.outLine("}")
-		this.doDeIndent()
+	if g.namespace != "" {
+		g.outLine("}")
+		g.doDeIndent()
 	}
 	return nil
 }
 
-func (this *definitionGenerator) outLine(v string) {
-	this.out.WriteString(strings.Repeat("  ", this.indent))
-	this.out.WriteString(v)
-	this.out.WriteString("\n")
+func (g *definitionGenerator) outLine(v string) {
+	g.out.WriteString(strings.Repeat("  ", g.indent))
+	g.out.WriteString(v)
+	g.out.WriteString("\n")
 }
 
-func (this *definitionGenerator) doIndent() {
-	this.indent++
+func (g *definitionGenerator) doIndent() {
+	g.indent++
 }
 
-func (this *definitionGenerator) doDeIndent() {
-	this.indent--
+func (g *definitionGenerator) doDeIndent() {
+	g.indent--
 }
 
-func (this *definitionGenerator) outNext(v string) {
-	this.out.WriteString(v)
+func (g *definitionGenerator) outNext(v string) {
+	g.out.WriteString(v)
 }
 
-func (this *definitionGenerator) outEndLine() {
-	this.out.WriteString("\n")
+func (g *definitionGenerator) outEndLine() {
+	g.out.WriteString("\n")
 }
 
-func (this *definitionGenerator) shouldWriteType(t reflect.Type, i exTypeInfo) bool {
+func (g *definitionGenerator) shouldWriteType(t reflect.Type, i exTypeInfo) bool {
 	if i.IsBasicType {
 		return false
 	}
-	if !strings.HasPrefix(t.PkgPath(), this.pkg) {
+	if !strings.HasPrefix(t.PkgPath(), g.pkg) {
 		return false
 	}
+
+	if t.Name() == "" {
+		return false
+	}
+
 	return true
 }
 
-func (this *definitionGenerator) writeDefinition(o ...any) error {
+func (g *definitionGenerator) writeDefinition(o ...any) error {
 	typesToProcess := []reflect.Type{}
 	processedTypes := map[string]exTypeInfo{}
 	for _, obj := range o {
@@ -92,8 +97,8 @@ func (this *definitionGenerator) writeDefinition(o ...any) error {
 		}
 
 		processedTypes[typeInfo.FullBaseTypeName] = typeInfo
-		useTypes := this.writeType(t, typeInfo)
-		this.outEndLine()
+		useTypes := g.writeType(t, typeInfo)
+		g.outEndLine()
 		typesToProcess = append(typesToProcess, useTypes...)
 	}
 
@@ -110,11 +115,11 @@ func (this *definitionGenerator) writeDefinition(o ...any) error {
 		}
 
 		processedTypes[typeInfo.FullBaseTypeName] = typeInfo
-		if !this.shouldWriteType(t, typeInfo) {
+		if !g.shouldWriteType(t, typeInfo) {
 			continue
 		}
-		useTypes := this.writeType(t, typeInfo)
-		this.outEndLine()
+		useTypes := g.writeType(t, typeInfo)
+		g.outEndLine()
 		typesToProcess = append(typesToProcess, useTypes...)
 	}
 	return nil
@@ -172,36 +177,37 @@ func getTypeInfo(t reflect.Type) exTypeInfo {
 	}
 }
 
-func (this *definitionGenerator) writeType(t reflect.Type, tInfo exTypeInfo) []reflect.Type {
+func (g *definitionGenerator) writeType(t reflect.Type, tInfo exTypeInfo) []reflect.Type {
 	typeName := tInfo.BaseType
 
 	if tInfo.IsGenericType {
-		this.outLine(fmt.Sprintf("type %s<T> = {", typeName))
+		g.outLine(fmt.Sprintf("type %s<T> = {", typeName))
 	} else if isBaseType(t) {
-		this.outLine(fmt.Sprintf("type %s = %s & { ", typeName, "unknown"))
+		// type alias is object in goja
+		g.outLine(fmt.Sprintf("type %s = %s & { ", typeName, "object"))
 	} else {
-		this.outLine(fmt.Sprintf("type %s = {", typeName))
+		g.outLine(fmt.Sprintf("type %s = {", typeName))
 	}
-	this.doIndent()
-	result := this.writeMembers(t, tInfo)
+	g.doIndent()
+	result := g.writeMembers(t, tInfo)
 
-	this.doDeIndent()
+	g.doDeIndent()
 
-	this.outNext("}")
+	g.outNext("}")
 
 	for _, ao := range result.andAlso {
 		oTI := getTypeInfo(ao)
 		if oTI.IsGenericType {
-			this.outNext(" & " + oTI.BaseType + "<" + oTI.TypeParam + ">")
+			g.outNext(" & " + oTI.BaseType + "<" + oTI.TypeParam + ">")
 		} else {
-			this.outNext(" & " + ao.Name())
+			g.outNext(" & " + ao.Name())
 		}
 	}
-	this.outEndLine()
+	g.outEndLine()
 	return result.usedTypes
 }
 
-func (this *definitionGenerator) writeMembers(t reflect.Type, tInfo exTypeInfo) struct {
+func (g *definitionGenerator) writeMembers(t reflect.Type, tInfo exTypeInfo) struct {
 	andAlso   []reflect.Type
 	usedTypes []reflect.Type
 } {
@@ -212,7 +218,7 @@ func (this *definitionGenerator) writeMembers(t reflect.Type, tInfo exTypeInfo) 
 			for i := 0; i < t.NumField(); i++ {
 				dumpMemberType := true
 				fieldInfo := t.Field(i)
-				if fieldInfo.IsExported() == false {
+				if !fieldInfo.IsExported() {
 					continue
 				}
 
@@ -221,23 +227,23 @@ func (this *definitionGenerator) writeMembers(t reflect.Type, tInfo exTypeInfo) 
 					andAlso = append(andAlso, ft)
 				} else {
 					if tInfo.IsGenericType {
-						this.outLine(fmt.Sprintf("%s: %s", fieldInfo.Name, this.getTypingNameForGeneric(fieldInfo)))
+						g.outLine(fmt.Sprintf("%s: %s", fieldInfo.Name, g.getTypingNameForGeneric(fieldInfo)))
 					} else if ft.Kind() == reflect.Struct && ft.Name() == "" {
 
 						if fieldInfo.Type.Kind() == reflect.Pointer {
-							this.outLine(fmt.Sprintf("%s: null | {", fieldInfo.Name))
+							g.outLine(fmt.Sprintf("%s: null | {", fieldInfo.Name))
 						} else {
-							this.outLine(fmt.Sprintf("%s: {", fieldInfo.Name))
+							g.outLine(fmt.Sprintf("%s: {", fieldInfo.Name))
 						}
-						this.doIndent()
+						g.doIndent()
 						memberInfo := getTypeInfo(ft)
-						membersResult := this.writeMembers(ft, memberInfo)
+						membersResult := g.writeMembers(ft, memberInfo)
 						usedTypes = append(usedTypes, membersResult.usedTypes...)
-						this.doDeIndent()
-						this.outLine("}")
+						g.doDeIndent()
+						g.outLine("}")
 						dumpMemberType = false
 					} else {
-						this.outLine(fmt.Sprintf("%s: %s", fieldInfo.Name, this.getTypingName(fieldInfo.Type)))
+						g.outLine(fmt.Sprintf("%s: %s", fieldInfo.Name, g.getTypingName(fieldInfo.Type)))
 					}
 				}
 
@@ -256,12 +262,12 @@ func (this *definitionGenerator) writeMembers(t reflect.Type, tInfo exTypeInfo) 
 		}
 
 		if t.Kind() == reflect.Interface {
-			mr := this.writeMethods(t)
+			mr := g.writeMethods(t)
 			andAlso = append(andAlso, mr.andAlso...)
 			usedTypes = append(usedTypes, mr.usedTypes...)
 		} else {
 			ptrType := reflect.PointerTo(t)
-			mr := this.writeMethods(ptrType)
+			mr := g.writeMethods(ptrType)
 			andAlso = append(andAlso, mr.andAlso...)
 			usedTypes = append(usedTypes, mr.usedTypes...)
 		}
@@ -276,7 +282,7 @@ func (this *definitionGenerator) writeMembers(t reflect.Type, tInfo exTypeInfo) 
 	}
 }
 
-func (this *definitionGenerator) writeMethods(ptrType reflect.Type) struct {
+func (g *definitionGenerator) writeMethods(ptrType reflect.Type) struct {
 	andAlso   []reflect.Type
 	usedTypes []reflect.Type
 } {
@@ -290,68 +296,67 @@ func (this *definitionGenerator) writeMethods(ptrType reflect.Type) struct {
 		numParams := methodInfo.Type.NumIn()
 		numResults := methodInfo.Type.NumOut()
 		if numResults > 1 {
-			//TODO configure to panic
-			this.outLine(fmt.Sprintf("// multiple results %s", methodInfo.Name))
+			// TODO configure to panic
+			g.outLine(fmt.Sprintf("// multiple results %s", methodInfo.Name))
 			continue
 		}
 
-		prmsStr := []string{}
+		paramsStr := []string{}
 
 		if isInterface {
 			for pI := 0; pI < numParams; pI++ {
 				prmType := methodInfo.Type.In(pI)
 				usedTypes = append(usedTypes, prmType)
-				prmsStr = append(prmsStr, fmt.Sprintf("p%d: %s", pI+1, this.getTypingName(prmType)))
+				paramsStr = append(paramsStr, fmt.Sprintf("p%d: %s", pI+1, g.getTypingName(prmType)))
 				usedTypes = append(usedTypes, prmType)
 			}
 		} else {
 			for pI := 0; pI < numParams; pI++ {
 				prmType := methodInfo.Type.In(pI)
 				if pI == 0 {
-
 				} else {
 					usedTypes = append(usedTypes, prmType)
 
-					prmsStr = append(prmsStr, fmt.Sprintf("p%d: %s", pI, this.getTypingName(prmType)))
+					paramsStr = append(paramsStr, fmt.Sprintf("p%d: %s", pI, g.getTypingName(prmType)))
 					usedTypes = append(usedTypes, prmType)
 				}
 			}
 		}
 
 		if numResults == 0 {
-			this.outLine(fmt.Sprintf("%s(%s): void", methodInfo.Name, strings.Join(prmsStr, ", ")))
+			g.outLine(fmt.Sprintf("%s(%s): void", methodInfo.Name, strings.Join(paramsStr, ", ")))
 		} else {
 			resultType := methodInfo.Type.Out(0)
 			resultStr := []string{}
 			switch resultType.Kind() {
 			case reflect.Pointer:
 				{
-					resultStr = append(resultStr, this.getTypingName(resultType))
+					resultStr = append(resultStr, g.getTypingName(resultType))
 					usedTypes = append(usedTypes, resultType.Elem())
 				}
 			case reflect.Struct:
 				{
-					resultStr = append(resultStr, this.getTypingName(resultType))
+					resultStr = append(resultStr, g.getTypingName(resultType))
 					usedTypes = append(usedTypes, resultType)
 				}
 			case reflect.Slice:
 				{
-					resultStr = append(resultStr, this.getTypingName(resultType))
+					resultStr = append(resultStr, g.getTypingName(resultType))
 					usedTypes = append(usedTypes, resultType.Elem())
 				}
 			case reflect.Map:
 				{
-					resultStr = append(resultStr, this.getTypingName(resultType))
+					resultStr = append(resultStr, g.getTypingName(resultType))
 				}
 			default:
-				resultStr = append(resultStr, this.getTypingName(resultType))
+				resultStr = append(resultStr, g.getTypingName(resultType))
 				usedTypes = append(usedTypes, resultType)
 			}
 
 			if len(resultStr) > 1 {
 				panic("not supported")
 			}
-			this.outLine(fmt.Sprintf("%s(%s): %s", methodInfo.Name, strings.Join(prmsStr, ", "), strings.Join(resultStr, "  ")))
+			g.outLine(fmt.Sprintf("%s(%s): %s", methodInfo.Name, strings.Join(paramsStr, ", "), strings.Join(resultStr, "  ")))
 		}
 	}
 	return struct {
@@ -362,49 +367,48 @@ func (this *definitionGenerator) writeMethods(ptrType reflect.Type) struct {
 		usedTypes,
 	}
 }
-func (this *definitionGenerator) getTypingName(t reflect.Type) string {
+
+func (g *definitionGenerator) getTypingName(t reflect.Type) string {
 	tInfo := getTypeInfo(getUnderlyingType(t))
 	isAlias := tInfo.IsAlias
 
 	typeName := t.Name()
 	if !isAlias {
 		switch t.Kind() {
-		case reflect.String:
-			typeName = "string"
-		case reflect.Bool:
-			typeName = "boolean"
-		case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
+		case reflect.String,
+			reflect.Bool,
+			reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
 			reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64,
-			reflect.Float32, reflect.Float64:
-			typeName = "number"
-		case reflect.Uintptr, reflect.Complex64, reflect.Complex128:
-			typeName = "object"
+			reflect.Float32, reflect.Float64,
+			reflect.Uintptr, reflect.Complex64, reflect.Complex128:
+			typeName = g.getTypingNameForBase(t.Kind())
+
 		case reflect.Pointer:
-			typeName = fmt.Sprintf("null | %s", this.getTypingName(t.Elem()))
+			typeName = fmt.Sprintf("null | %s", g.getTypingName(t.Elem()))
 		case reflect.Slice:
 			if t.Elem().Kind() == reflect.Pointer {
-				typeName = fmt.Sprintf("(%s)[]", this.getTypingName(t.Elem()))
+				typeName = fmt.Sprintf("(%s)[]", g.getTypingName(t.Elem()))
 			} else {
-				typeName = this.getTypingName(t.Elem()) + "[]"
+				typeName = g.getTypingName(t.Elem()) + "[]"
 			}
 		case reflect.Interface:
 			if tInfo.FullBaseTypeName == "interface {}" {
-				typeName = fmt.Sprintf("any")
+				typeName = "any"
 			} else {
 				typeName = fmt.Sprintf("null | %s", typeName)
 			}
 		case reflect.Map:
-			keyType := this.getTypingName(t.Key())
-			elemType := this.getTypingName(t.Elem())
+			keyType := g.getTypingName(t.Key())
+			elemType := g.getTypingName(t.Elem())
 			typeName = fmt.Sprintf("Record<%s, %s>", keyType, elemType)
 		case reflect.Struct:
 			isSubGeneric := getTypeInfo(t)
 			if isSubGeneric.IsGenericType {
 				typeName = fmt.Sprintf("%s<%s>", isSubGeneric.BaseType, isSubGeneric.TypeParam)
-			} else if !this.shouldWriteType(t, tInfo) {
+			} else if !g.shouldWriteType(t, tInfo) {
 				typeName = "unknown"
 			} else {
-				typeName = fmt.Sprintf("%s", t.Name())
+				typeName = t.Name()
 			}
 		default:
 			typeName = t.Name()
@@ -413,11 +417,29 @@ func (this *definitionGenerator) getTypingName(t reflect.Type) string {
 	return typeName
 }
 
-func (this *definitionGenerator) getTypingNameForGeneric(fieldInfo reflect.StructField) string {
+func (g *definitionGenerator) getTypingNameForBase(k reflect.Kind) string {
+	typeName := "unknown"
+
+	switch k {
+	case reflect.String:
+		typeName = "string"
+	case reflect.Bool:
+		typeName = "boolean"
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
+		reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64,
+		reflect.Float32, reflect.Float64:
+		typeName = "number"
+	case reflect.Uintptr, reflect.Complex64, reflect.Complex128:
+		typeName = "object"
+	}
+	return typeName
+}
+
+func (g *definitionGenerator) getTypingNameForGeneric(fieldInfo reflect.StructField) string {
 	_, isGenericParam := fieldInfo.Tag.Lookup("waxGeneric")
 
 	if !isGenericParam {
-		return this.getTypingName(fieldInfo.Type)
+		return g.getTypingName(fieldInfo.Type)
 	}
 	return getTypeForKind("T", fieldInfo.Type.Kind())
 }
